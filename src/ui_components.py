@@ -435,6 +435,77 @@ class DriverInfoComponent(BaseComponent):
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
     
+# Feature: race progress bar with event markers
+class RaceProgressBarComponent(BaseComponent):
+    """
+    A visual progress bar showing race timeline with event markers:
+    - DNF markers (red X)
+    - Lap transition markers (vertical lines)
+    - Flag markers (red/yellow rectangles)
+    
+    Uses best practices:
+    - Single responsibility: only handles progress bar rendering
+    - Efficient rendering with cached markers
+    - Clear separation of concerns for event detection
+    """
+    
+    # Event type constants for clear identification
+    EVENT_DNF = "dnf"
+    EVENT_LAP = "lap"
+    EVENT_YELLOW_FLAG = "yellow_flag"
+    EVENT_RED_FLAG = "red_flag"
+    EVENT_SAFETY_CAR = "safety_car"
+    EVENT_VSC = "vsc"
+    
+    # Color palette following F1 conventions
+    COLORS = {
+        "background": (30, 30, 30, 200),
+        "progress_fill": (0, 180, 0),
+        "progress_border": (100, 100, 100),
+        "dnf": (220, 50, 50),
+        "lap_marker": (80, 80, 80),
+        "yellow_flag": (255, 220, 0),
+        "red_flag": (220, 30, 30),
+        "safety_car": (255, 140, 0),
+        "vsc": (255, 165, 0),
+        "text": (220, 220, 220),
+        "current_position": (255, 255, 255),
+    }
+    
+    def __init__(self, 
+                 left_margin: int = 340, 
+                 right_margin: int = 260,
+                 bottom: int = 30,
+                 height: int = 24,
+                 marker_height: int = 16):
+        """
+        Initialize the progress bar component.
+        
+        Args:
+            left_margin: Left margin from window edge
+            right_margin: Right margin from window edge
+            bottom: Distance from bottom of window
+            height: Height of the progress bar
+            marker_height: Height of event markers
+        """
+        self.left_margin = left_margin
+        self.right_margin = right_margin
+        self.bottom = bottom
+        self.height = height
+        self.marker_height = marker_height
+        
+        # Cached data
+        self._events: List[dict] = []
+        self._total_frames: int = 0
+        self._total_laps: int = 0
+        self._bar_left: float = 0
+        self._bar_width: float = 0
+        
+        # Hover state for tooltips
+        self._hover_event: Optional[dict] = None
+        self._mouse_x: float = 0
+        self._mouse_y: float = 0
+        
 # Build track geometry from example lap telemetry
 
 def build_track_from_example_lap(example_lap, track_width=200):
