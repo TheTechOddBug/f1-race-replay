@@ -1164,7 +1164,7 @@ class RaceControlsComponent(BaseComponent):
         if self._point_in_rect(x, y, self.rewind_rect):
             # Rewind 10 frames
             if hasattr(window, 'frame_index'):
-                window.frame_index = max(0.0, window.frame_index - 10.0)
+                window.frame_index = int(max(0, window.frame_index - 10))
             return True
         elif self._point_in_rect(x, y, self.play_pause_rect):
             # Toggle pause
@@ -1174,7 +1174,7 @@ class RaceControlsComponent(BaseComponent):
         elif self._point_in_rect(x, y, self.forward_rect):
             # Forward 10 frames
             if hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
-                window.frame_index = min(float(window.n_frames - 1), window.frame_index + 10.0)
+                window.frame_index = int(min(window.n_frames - 1, window.frame_index + 10))
             return True
         elif self._point_in_rect(x, y,self.speed_increase_rect):
             # Increase speed
