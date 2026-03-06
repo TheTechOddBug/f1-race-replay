@@ -6,9 +6,12 @@ from src.f1_data import get_race_weekends_by_year
 import sys
 import os
 import subprocess
+from datetime import datetime as date
 
 def cli_load():
-    current_year = 2025
+    current_year_date = date.now()
+    current_year = current_year_date.year if (current_year_date.month >= 3) else (current_year_date.year-1)
+
     style = Style([
         ("pointer", "fg:#e10600 bold"),
         ("selected", "noinherit fg:#64eb34 bold"),
