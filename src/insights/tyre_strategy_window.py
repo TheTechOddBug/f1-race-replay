@@ -40,6 +40,7 @@ TEXT_WHITE  = "#ffffff"
 TEXT_DIM    = "#888888"
 BORDER      = "#2a2a2a"
 
+
 class StintBar(QWidget):
     """Single driver row: name + horizontal coloured stint bars."""
 
@@ -59,7 +60,6 @@ class StintBar(QWidget):
         self.position    = position
         self.current_lap = current_lap
         self.update()
-
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -84,7 +84,7 @@ class StintBar(QWidget):
                 pos_color = QColor(ACCENT)
             else:
                 pos_color = QColor("#222222")
-                
+
             painter.fillRect(0, 6, POS_W - 4, H - 12, pos_color)
             painter.setPen(QColor(TEXT_WHITE))
             painter.setFont(QFont("Arial", 8, QFont.Bold))
@@ -103,14 +103,14 @@ class StintBar(QWidget):
         # Stint blocks
         for stint in self.stints:
             s_lap = stint["start_lap"]
-            e_lap = stint["end_lap"] if stint["end_lap"] else self.total_laps
+            e_lap = stint["end_lap"] if stint["end_lap"] else self.current_lap
             tyre  = stint["tyre"]
 
             colour_hex, abbr = TYRE_COLOURS.get(tyre, ("#888888", "?"))
             colour = QColor(colour_hex)
 
             x1 = bar_x + int((s_lap - 1) / self.total_laps * bar_w)
-            x2 = bar_x + int((e_lap - 1)     / self.total_laps * bar_w)
+            x2 = bar_x + int((e_lap - 1) / self.total_laps * bar_w)
             bw = max(x2 - x1, 2)
 
             # Gradient fill
@@ -127,7 +127,7 @@ class StintBar(QWidget):
                 painter.setFont(QFont("Arial", 8, QFont.Bold))
                 label_w = min(bw - 4, 18)
                 painter.drawText(QRect(x1 + 3, 10, label_w, H - 20),
-                                Qt.AlignVCenter | Qt.AlignLeft, abbr)
+                                 Qt.AlignVCenter | Qt.AlignLeft, abbr)
 
         # Current lap marker
         if self.current_lap and self.current_lap > 1:
@@ -176,8 +176,7 @@ class LapAxisWidget(QWidget):
 class TyreStrategyWindow(PitWallWindow):
 
     def __init__(self):
-        
-    # attrs FIRST — super().__init__() calls setup_ui() immediately
+        # attrs FIRST — super().__init__() calls setup_ui() immediately
         self.stints      = {}
         self.prev_tyres  = {}
         self.positions   = {}
@@ -185,6 +184,9 @@ class TyreStrategyWindow(PitWallWindow):
         self.current_lap = 1
         self._row_widgets: dict[str, StintBar] = {}
         self._redraw_pending = False
+
+        # Load persisted state if exists
+        self._load_state()
 
         super().__init__()
         self.setWindowTitle("F1 Tyre Strategy")
@@ -196,6 +198,52 @@ class TyreStrategyWindow(PitWallWindow):
         self._timer.setInterval(250)
         self._timer.timeout.connect(self._flush_redraw)
         self._timer.start()
+
+    # ------------------------------------------------------------------ State --
+
+    def _load_state(self):
+        try:
+            import json, os
+            if os.path.exists("computed_data/tyre_state.json"):
+                with open("computed_data/tyre_state.json") as f:
+                    saved = json.load(f)
+                    self.stints      = saved.get("stints", {})
+                    self.positions   = saved.get("positions", {})
+                    self.prev_tyres  = saved.get("prev_tyres", {})
+                    self.current_lap = saved.get("current_lap", 1)
+                    self.total_laps  = saved.get("total_laps", 60)
+                    print("Tyre state loaded successfully.")
+        except FileNotFoundError:
+            print("No saved tyre state found. Starting fresh.")
+        except json.JSONDecodeError:
+            print("Saved tyre state corrupted. Starting fresh.")
+        except Exception as e:
+            print(f"Failed to load tyre state: {e}")
+
+    def _save_state(self):
+        try:
+            import json, os
+            if not os.path.exists("computed_data"):
+                os.makedirs("computed_data")
+            with open("computed_data/tyre_state.json", "w") as f:
+                json.dump({
+                    "stints":      self.stints,
+                    "positions":   self.positions,
+                    "prev_tyres":  self.prev_tyres,
+                    "current_lap": self.current_lap,
+                    "total_laps":  self.total_laps,
+                }, f)
+            print("Tyre state saved successfully.")
+        except PermissionError:
+            print("Permission denied saving tyre state.")
+        except OSError as e:
+            print(f"OS error saving tyre state: {e}")
+        except Exception as e:
+            print(f"Failed to save tyre state: {e}")
+
+    def closeEvent(self, event):
+        self._save_state()
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------ UI --
 
@@ -299,42 +347,49 @@ class TyreStrategyWindow(PitWallWindow):
         outer.addWidget(status_bar)
 
     # --------------------------------------------------------- Telemetry ---
-def on_telemetry_data(self, data):
-    if "frame" not in data:
-        return
 
-    frame   = data["frame"]
-    drivers = frame.get("drivers", {})
+    def on_telemetry_data(self, data):
+        if "frame" not in data:
+            return
 
-    sess = data.get("session_data", {})
-    if sess.get("total_laps"):
-        self.total_laps = int(sess["total_laps"])
+        frame   = data["frame"]
+        drivers = frame.get("drivers", {})
 
-    self.current_lap = int(frame.get("lap", self.current_lap))
+        sess = data.get("session_data", {})
+        if sess.get("total_laps"):
+            new_total = int(sess["total_laps"])
+            if new_total != self.total_laps and self.current_lap <= 2:
+                print("New session detected. Wiping old tyre state.")
+                self.stints     = {}
+                self.prev_tyres = {}
+                self.positions  = {}
+            self.total_laps = new_total
 
-    for code, driver in drivers.items():
-        tyre = driver.get("tyre")
-        lap  = driver.get("lap")
-        pos  = driver.get("position")
+        self.current_lap = int(frame.get("lap", self.current_lap))
 
-        if pos is not None:
-            self.positions[code] = int(pos)
+        for code, driver in drivers.items():
+            tyre = driver.get("tyre")
+            lap  = driver.get("lap")
+            pos  = driver.get("position")
 
-        if tyre is not None and isinstance(tyre, (int, float)):
-            tyre = TYRE_REMAP.get(round(float(tyre)), tyre)
-        if tyre is None or lap is None or not isinstance(tyre, (int, float)) or tyre == 0.0:
-            continue
+            if pos is not None:
+                self.positions[code] = int(pos)
 
-        lap = int(lap)
-        if code not in self.stints:
-            self.stints[code]     = [{"tyre": tyre, "start_lap": lap, "end_lap": None}]
-            self.prev_tyres[code] = tyre
-        elif tyre != self.prev_tyres[code]:
-            self.stints[code][-1]["end_lap"] = lap - 1
-            self.stints[code].append({"tyre": tyre, "start_lap": lap, "end_lap": None})
-            self.prev_tyres[code] = tyre
+            if tyre is not None and isinstance(tyre, (int, float)):
+                tyre = TYRE_REMAP.get(round(float(tyre)), tyre)
+            if tyre is None or lap is None or not isinstance(tyre, (int, float)) or tyre == 0.0:
+                continue
 
-    self._redraw_pending = True
+            lap = int(lap)
+            if code not in self.stints:
+                self.stints[code]     = [{"tyre": tyre, "start_lap": lap, "end_lap": None}]
+                self.prev_tyres[code] = tyre
+            elif tyre != self.prev_tyres[code]:
+                self.stints[code][-1]["end_lap"] = lap - 1
+                self.stints[code].append({"tyre": tyre, "start_lap": lap, "end_lap": None})
+                self.prev_tyres[code] = tyre
+
+        self._redraw_pending = True
 
     # ----------------------------------------------------------- Render ----
 
@@ -358,7 +413,7 @@ def on_telemetry_data(self, data):
         for i, code in enumerate(sorted_codes):
             pos = self.positions.get(code)
             if code not in self._row_widgets:
-                bar = StintBar(code, self.stints[code], self.total_laps, pos, self.current_lap)       # 16 spaces
+                bar = StintBar(code, self.stints[code], self.total_laps, pos, self.current_lap)
                 self._row_widgets[code] = bar
             else:
                 self._row_widgets[code].update_data(
